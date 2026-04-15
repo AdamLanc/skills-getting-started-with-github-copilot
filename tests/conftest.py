@@ -1,40 +1,47 @@
 """Pytest configuration and fixtures for the API tests."""
 
+import json
 import pytest
+from pathlib import Path
 from fastapi.testclient import TestClient
 from src.app import app
+from src.storage import DataStore
 
 
 @pytest.fixture
-def client():
-    """Provide a test client for the FastAPI application."""
+def test_data_dir(tmp_path):
+    """Create a temporary directory for test data files."""
+    return tmp_path
+
+
+@pytest.fixture
+def test_datastore(test_data_dir):
+    """Provide a fresh DataStore instance for each test using a temporary data file."""
+    test_file = test_data_dir / "test_activities.json"
+    datastore = DataStore(data_file=str(test_file))
+    return datastore
+
+
+@pytest.fixture
+def client(monkeypatch, test_datastore):
+    """
+    Provide a test client for the FastAPI application with isolated data storage.
+    
+    This fixture replaces the app's datastore with a test-specific instance
+    that uses a temporary JSON file, ensuring test isolation.
+    """
+    # Replace the app's datastore with our test datastore
+    monkeypatch.setattr("src.app.datastore", test_datastore)
+    
     return TestClient(app)
 
 
 @pytest.fixture
 def sample_activities(client):
     """
-    Reset the activities database to a known state for each test.
+    Provide access to the activities for verification within tests.
     
-    This fixture ensures tests start with the original activities data,
-    allowing tests to modify the data without affecting other tests.
+    Uses the test datastore that's already isolated for this test.
     """
-    # Get the activities dictionary from the app
-    from src.app import activities
-    
-    # Store original state
-    original_state = {
-        name: {
-            "description": data["description"],
-            "schedule": data["schedule"],
-            "max_participants": data["max_participants"],
-            "participants": data["participants"].copy()  # Make a copy to avoid mutations
-        }
-        for name, data in activities.items()
-    }
-    
-    yield activities
-    
-    # Restore original state after test
-    activities.clear()
-    activities.update(original_state)
+    return client  # Return the client; tests can call client.get("/activities")
+
